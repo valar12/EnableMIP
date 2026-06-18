@@ -1,26 +1,29 @@
-# Microsoft 365 Purview DLP - Enable Sensitivity Labels
+# EnableMIP - Enable MIP Sensitivity Labels
 
-Complete PowerShell automation toolkit for enabling and configuring Microsoft Information Protection (MIP) sensitivity labels across your Microsoft 365 tenant.
+PowerShell automation toolkit for enabling Microsoft Information Protection (MIP) sensitivity label prerequisites across Commercial and USGov Microsoft 365 tenants.
 
 ## Overview
 
-This repository contains PowerShell scripts that automate the complete setup process for sensitivity labels in Microsoft 365, including configuration for Groups, SharePoint Sites, OneDrive, and Azure AD synchronization.
+This repository contains the `Enable-MIPSensitivityLabels.ps1` PowerShell command for preparing a tenant for MIP sensitivity labels, including Microsoft 365 Groups, SharePoint Sites, OneDrive, co-authoring/PDF options, and Azure AD label synchronization.
 
 ## Features
 
-- ✅ Automated module installation and updates (Microsoft Graph, Exchange Online, SharePoint Online)
+- ✅ Automated installation for missing or outdated modules (Microsoft Graph, Exchange Online, SharePoint Online)
 - ✅ Microsoft Graph directory settings configuration for Groups and Sites
 - ✅ SharePoint Online Azure Information Protection (AIP) integration
 - ✅ Security & Compliance Center label synchronization
 - ✅ Comprehensive error handling and logging
 - ✅ Interactive authentication with MFA support
-- ✅ Idempotent operations (safe to run multiple times)
+- ✅ Commercial and USGov tenant endpoint support
+- ✅ PowerShell 7 SharePoint Online module import compatibility (`-UseWindowsPowerShell`)
+- ✅ Optional co-authoring and PDF sensitivity label enablement
+- ✅ Idempotent configuration checks (safe to run multiple times without reapplying settings that are already enabled)
 - ✅ Detailed progress reporting and success verification
 
 ## Scripts Included
 
-### Enable-SensitivityLabels-Complete.ps1
-The comprehensive script that handles the complete sensitivity labels setup process across all Microsoft 365 services.
+### Enable-MIPSensitivityLabels.ps1
+The primary script that configures the Microsoft Information Protection tenant prerequisites for sensitivity labels across Microsoft 365 services.
 
 **What it does:**
 1. Installs/updates required PowerShell modules
@@ -28,8 +31,9 @@ The comprehensive script that handles the complete sensitivity labels setup proc
 3. Enables MIP labels for Microsoft 365 Groups
 4. Enables MIP labels for SharePoint Sites
 5. Enables SharePoint Online AIP integration
-6. Connects to Security & Compliance Center
-7. Syncs sensitivity labels to Azure AD
+6. Optionally enables co-authoring and PDF sensitivity label support
+7. Connects to Security & Compliance Center with Commercial or USGov endpoints
+8. Syncs sensitivity labels to Azure AD
 
 ## Prerequisites
 
@@ -49,8 +53,8 @@ The comprehensive script that handles the complete sensitivity labels setup proc
 
 1. Clone this repository:
    ```powershell
-   git clone https://github.com/GarthVDW/M365-Purview-DLP-Enable-Sensitivity-Labels.git
-   cd M365-Purview-DLP-Enable-Sensitivity-Labels
+   git clone https://github.com/GarthVDW/EnableMIP.git
+   cd EnableMIP
    ```
 
 2. Ensure your execution policy allows running scripts:
@@ -61,27 +65,53 @@ The comprehensive script that handles the complete sensitivity labels setup proc
 ## Usage
 
 ### Basic Usage
-Run the complete setup script with default settings:
+Run the `Enable-MIPSensitivityLabels.ps1` command with default Commercial settings:
 ```powershell
-.\Enable-SensitivityLabels-Complete.ps1
+.\Enable-MIPSensitivityLabels.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com
 ```
+
+### USGov Tenant
+Run against a USGov tenant by selecting the USGov environment and providing your `.us` SharePoint admin center URL:
+```powershell
+.\Enable-MIPSensitivityLabels.ps1 `
+  -TenantEnvironment USGov `
+  -UserPrincipalName admin@contoso.onmicrosoft.us `
+  -SharePointAdminUrl https://contoso-admin.sharepoint.us
+```
+
+For USGov, the script uses Microsoft Graph `USGov`, the compliance PowerShell endpoint `https://ps.compliance.protection.office365.us/powershell-liveid/`, and the authorization endpoint `https://login.microsoftonline.us/organizations`.
 
 ### Skip Module Installation
 If modules are already installed:
 ```powershell
-.\Enable-SensitivityLabels-Complete.ps1 -SkipModuleInstall
+.\Enable-MIPSensitivityLabels.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com -SkipModuleInstall
 ```
 
 ### Custom Log Path
 Specify a custom location for log files:
 ```powershell
-.\Enable-SensitivityLabels-Complete.ps1 -LogPath "C:\Logs\M365"
+.\Enable-MIPSensitivityLabels.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com -LogPath "C:\Logs\M365"
 ```
 
 ### Force Module Reinstall
 Force reinstallation of all modules:
 ```powershell
-.\Enable-SensitivityLabels-Complete.ps1 -Force
+.\Enable-MIPSensitivityLabels.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com -Force
+```
+
+### Enable Co-authoring and PDF Support
+Enable optional tenant settings for co-authoring with sensitivity labels and PDF sensitivity label support:
+```powershell
+.\Enable-MIPSensitivityLabels.ps1 `
+  -SharePointAdminUrl https://contoso-admin.sharepoint.com `
+  -EnableCoauthoring `
+  -EnablePdfSupport
+```
+
+### PowerShell 7 SharePoint Online Import
+When running in PowerShell 7, the SharePoint Online module must be imported through Windows PowerShell compatibility. The script now does this automatically with the equivalent of:
+```powershell
+Import-Module Microsoft.Online.SharePoint.PowerShell -UseWindowsPowerShell
 ```
 
 ## Parameters
@@ -91,6 +121,11 @@ Force reinstallation of all modules:
 | `LogPath` | String | No | Path for transcript logs (default: current directory) |
 | `SkipModuleInstall` | Switch | No | Skip module installation if already installed |
 | `Force` | Switch | No | Force reinstall modules even if present |
+| `TenantEnvironment` | String | No | Target cloud environment: `Commercial` or `USGov` (default: `Commercial`) |
+| `UserPrincipalName` | String | No | Admin account for Exchange Online Protection / Purview PowerShell connection |
+| `SharePointAdminUrl` | String | No | SharePoint admin center URL, such as `https://contoso-admin.sharepoint.com` or `https://contoso-admin.sharepoint.us`; required before the SharePoint Online configuration step |
+| `EnableCoauthoring` | Switch | No | Runs `Set-PolicyConfig -EnableLabelCoauth $true` |
+| `EnablePdfSupport` | Switch | No | Runs `Set-SPOTenant -EnableSensitivityLabelforPDF $true` |
 
 ## What Gets Configured
 
@@ -102,14 +137,28 @@ Force reinstallation of all modules:
    - Enables Azure Information Protection integration
    - Allows sensitivity labels on SharePoint Sites and OneDrive
 
-3. **Azure AD Label Sync**
+3. **Co-authoring and PDF Support (Optional)**
+   - Enables `EnableLabelCoauth` for co-authoring files with sensitivity labels
+   - Enables `EnableSensitivityLabelforPDF` for PDF sensitivity label support in SharePoint and OneDrive
+
+4. **Azure AD Label Sync**
    - Synchronizes sensitivity labels from Microsoft Purview to Azure AD
    - Makes labels available across all Microsoft 365 services
+
+
+## Idempotent Behavior
+
+The command checks current tenant and local module state before making changes:
+
+- Required PowerShell modules are skipped when the installed version already meets the minimum requirement, unless `-Force` is used.
+- Microsoft Graph reconnects only when the existing session targets a different cloud environment.
+- `EnableMIPLabels`, SharePoint AIP integration, PDF support, and label co-authoring are only set when their current values are not already enabled.
+- Label sync can be run repeatedly; Microsoft 365 handles synchronization as an idempotent refresh.
 
 ## Logging
 
 All script executions create detailed transcript logs with timestamps:
-- Format: `EnableSensitivityLabels_Complete_YYYYMMDD-HHMMSS.log`
+- Format: `EnableMIPSensitivityLabels_YYYYMMDD-HHMMSS.log`
 - Location: Specified by `-LogPath` parameter or current directory
 - Contains: All commands, output, errors, and stack traces
 
@@ -129,7 +178,7 @@ After running the script:
 The script uses targeted Microsoft Graph modules to avoid this issue. If you still encounter it, try:
 ```powershell
 # Close and reopen PowerShell, then run:
-.\Enable-SensitivityLabels-Complete.ps1 -SkipModuleInstall
+.\Enable-MIPSensitivityLabels.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com -SkipModuleInstall
 ```
 
 ### Authentication Issues
