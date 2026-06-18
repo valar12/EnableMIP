@@ -8,6 +8,8 @@
     - Microsoft Graph configuration for Groups and Sites
     - SharePoint Online AIP integration
     - Azure AD label synchronization
+    - Commercial and USGov tenant connection endpoints
+    - Optional co-authoring and PDF support for sensitivity labels
     
     The script handles module installation, configuration, and label synchronization with 
     comprehensive error handling and logging.
@@ -20,6 +22,21 @@
 
 .PARAMETER Force
     Force reinstall modules even if they already exist
+
+.PARAMETER TenantEnvironment
+    Microsoft 365 cloud environment to configure. Use Commercial or USGov. Default: Commercial
+
+.PARAMETER UserPrincipalName
+    Admin user principal name used for services that require or benefit from an explicit sign-in identity
+
+.PARAMETER SharePointAdminUrl
+    SharePoint admin center URL, for example https://contoso-admin.sharepoint.com or https://contoso-admin.sharepoint.us. Required for SharePoint Online configuration
+
+.PARAMETER EnableCoauthoring
+    Enables co-authoring for files with sensitivity labels by setting EnableLabelCoauth to true
+
+.PARAMETER EnablePdfSupport
+    Enables sensitivity labels for PDF files in SharePoint and OneDrive
 
 .EXAMPLE
     .\Enable-SensitivityLabels-Complete.ps1
@@ -49,7 +66,23 @@ param(
     [switch]$SkipModuleInstall,
     
     [Parameter(Mandatory = $false)]
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Commercial", "USGov")]
+    [string]$TenantEnvironment = "Commercial",
+
+    [Parameter(Mandatory = $false)]
+    [string]$UserPrincipalName,
+
+    [Parameter(Mandatory = $false)]
+    [string]$SharePointAdminUrl,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$EnableCoauthoring,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$EnablePdfSupport
 )
 
 #Requires -Version 5.1
@@ -64,6 +97,20 @@ try {
     Write-Host "Enable Sensitivity Labels for M365" -ForegroundColor Cyan
     Write-Host "Complete Configuration Script" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $isUSGov = $TenantEnvironment -eq "USGov"
+    $graphEnvironment = if ($isUSGov) { "USGov" } else { "Global" }
+    $ippsConnectionParams = @{}
+    if ($UserPrincipalName) { $ippsConnectionParams.UserPrincipalName = $UserPrincipalName }
+    if ($isUSGov) {
+        $ippsConnectionParams.ConnectionUri = "https://ps.compliance.protection.office365.us/powershell-liveid/"
+        $ippsConnectionParams.AzureADAuthorizationEndpointUri = "https://login.microsoftonline.us/organizations"
+    }
+    $ippsConnectionParams.ShowBanner = $false
+
+    Write-Host "Target environment: $TenantEnvironment" -ForegroundColor Cyan
+    if ($SharePointAdminUrl) { Write-Host "SharePoint admin URL: $SharePointAdminUrl" -ForegroundColor Cyan }
     Write-Host ""
 
     # Check PowerShell version
@@ -121,7 +168,12 @@ try {
         Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
         Import-Module Microsoft.Graph.Beta.Identity.DirectoryManagement -ErrorAction Stop
         Import-Module ExchangeOnlineManagement -ErrorAction Stop
-        Import-Module Microsoft.Online.SharePoint.PowerShell -ErrorAction Stop
+        $spoImportParams = @{ Name = "Microsoft.Online.SharePoint.PowerShell"; ErrorAction = "Stop" }
+        if ($PSVersionTable.PSEdition -eq "Core") {
+            $spoImportParams.UseWindowsPowerShell = $true
+            Write-Host "  [INFO] Importing SharePoint Online module with -UseWindowsPowerShell for PowerShell 7 compatibility" -ForegroundColor Cyan
+        }
+        Import-Module @spoImportParams
         Write-Host "  [OK] All modules imported successfully" -ForegroundColor Green
     } catch {
         throw "Failed to import modules: $_"
@@ -137,10 +189,10 @@ try {
             $reconnect = Read-Host "  Do you want to reconnect? (Y/N)"
             if ($reconnect -eq 'Y') {
                 Disconnect-MgGraph -ErrorAction SilentlyContinue
-                Connect-MgGraph -Scopes "Directory.ReadWrite.All" -ErrorAction Stop
+                Connect-MgGraph -Scopes "Directory.ReadWrite.All" -Environment $graphEnvironment -ErrorAction Stop
             }
         } else {
-            Connect-MgGraph -Scopes "Directory.ReadWrite.All" -ErrorAction Stop
+            Connect-MgGraph -Scopes "Directory.ReadWrite.All" -Environment $graphEnvironment -ErrorAction Stop
         }
         
         $context = Get-MgContext
@@ -206,17 +258,28 @@ try {
     }
 
     # Step 6: Connect to SharePoint Online and enable AIP integration
+    if (-not $SharePointAdminUrl) {
+        throw "SharePointAdminUrl is required to connect to SharePoint Online. Example: -SharePointAdminUrl https://contoso-admin.sharepoint.com or https://contoso-admin.sharepoint.us"
+    }
     Write-Host "`n[6/8] Enabling SharePoint Online AIP integration..." -ForegroundColor Yellow
     try {
         # Connect to SharePoint Online using MFA
         Write-Host "  [INFO] Connecting to SharePoint Online..." -ForegroundColor Cyan
-        Connect-SPOService -ErrorAction Stop
+        $spoConnectParams = @{ ErrorAction = "Stop" }
+        if ($SharePointAdminUrl) { $spoConnectParams.Url = $SharePointAdminUrl }
+        Connect-SPOService @spoConnectParams
         Write-Host "  [OK] Connected to SharePoint Online" -ForegroundColor Green
         
         # Enable Azure Information Protection (AIP) integration
         Write-Host "  [INFO] Enabling AIP integration for SharePoint and OneDrive..." -ForegroundColor Cyan
         Set-SPOTenant -EnableAIPIntegration $true -ErrorAction Stop
         Write-Host "  [OK] SharePoint AIP integration enabled successfully" -ForegroundColor Green
+
+        if ($EnablePdfSupport) {
+            Write-Host "  [INFO] Enabling sensitivity label support for PDF files..." -ForegroundColor Cyan
+            Set-SPOTenant -EnableSensitivityLabelforPDF $true -ErrorAction Stop
+            Write-Host "  [OK] PDF sensitivity label support enabled successfully" -ForegroundColor Green
+        }
     } catch {
         throw "Failed to enable SharePoint AIP integration: $_"
     }
@@ -230,18 +293,25 @@ try {
             Write-Host "  [INFO] Already connected to Security & Compliance Center" -ForegroundColor Cyan
         } else {
             # Use interactive authentication without WAM (Windows Account Manager)
-            Connect-IPPSSession -UseRPSSession -ErrorAction Stop
+            Connect-IPPSSession @ippsConnectionParams -ErrorAction Stop
         }
         Write-Host "  [OK] Connected to Security & Compliance Center" -ForegroundColor Green
     } catch {
         Write-Host "  [WARNING] Failed to connect using standard method, trying alternative..." -ForegroundColor Yellow
         try {
-            # Try without UseRPSSession parameter
-            Connect-IPPSSession -ErrorAction Stop
+            # Try with the same cloud-specific parameters and default session behavior
+            Connect-IPPSSession @ippsConnectionParams -ErrorAction Stop
             Write-Host "  [OK] Connected to Security & Compliance Center" -ForegroundColor Green
         } catch {
             throw "Failed to connect to Security & Compliance Center: $_"
         }
+    }
+
+    if ($EnableCoauthoring) {
+        Write-Host "  [INFO] Enabling co-authoring for files with sensitivity labels..." -ForegroundColor Cyan
+        Set-PolicyConfig -EnableLabelCoauth $true -ErrorAction Stop
+        $policyConfig = Get-PolicyConfig -ErrorAction Stop
+        Write-Host "  [OK] EnableLabelCoauth is set to: $($policyConfig.EnableLabelCoauth)" -ForegroundColor Green
     }
 
     # Step 8: Sync labels to Azure AD
@@ -264,6 +334,8 @@ try {
     Write-Host "  ✓ MIP labels enabled for Microsoft 365 Groups" -ForegroundColor White
     Write-Host "  ✓ MIP labels enabled for SharePoint Sites" -ForegroundColor White
     Write-Host "  ✓ SharePoint Online AIP integration enabled" -ForegroundColor White
+    if ($EnableCoauthoring) { Write-Host "  ✓ Co-authoring for sensitivity labels enabled" -ForegroundColor White }
+    if ($EnablePdfSupport) { Write-Host "  ✓ PDF sensitivity label support enabled" -ForegroundColor White }
     Write-Host "  ✓ Sensitivity labels synced to Azure AD" -ForegroundColor White
     Write-Host ""
     Write-Host "Next Steps:" -ForegroundColor Cyan
