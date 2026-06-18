@@ -14,6 +14,9 @@ This repository contains PowerShell scripts that automate the complete setup pro
 - ✅ Security & Compliance Center label synchronization
 - ✅ Comprehensive error handling and logging
 - ✅ Interactive authentication with MFA support
+- ✅ Commercial and USGov tenant endpoint support
+- ✅ PowerShell 7 SharePoint Online module import compatibility (`-UseWindowsPowerShell`)
+- ✅ Optional co-authoring and PDF sensitivity label enablement
 - ✅ Idempotent operations (safe to run multiple times)
 - ✅ Detailed progress reporting and success verification
 
@@ -28,8 +31,9 @@ The comprehensive script that handles the complete sensitivity labels setup proc
 3. Enables MIP labels for Microsoft 365 Groups
 4. Enables MIP labels for SharePoint Sites
 5. Enables SharePoint Online AIP integration
-6. Connects to Security & Compliance Center
-7. Syncs sensitivity labels to Azure AD
+6. Optionally enables co-authoring and PDF sensitivity label support
+7. Connects to Security & Compliance Center with Commercial or USGov endpoints
+8. Syncs sensitivity labels to Azure AD
 
 ## Prerequisites
 
@@ -61,10 +65,21 @@ The comprehensive script that handles the complete sensitivity labels setup proc
 ## Usage
 
 ### Basic Usage
-Run the complete setup script with default settings:
+Run the complete setup script with default Commercial settings:
 ```powershell
-.\Enable-SensitivityLabels-Complete.ps1
+.\Enable-SensitivityLabels-Complete.ps1 -SharePointAdminUrl https://contoso-admin.sharepoint.com
 ```
+
+### USGov Tenant
+Run against a USGov tenant by selecting the USGov environment and providing your `.us` SharePoint admin center URL:
+```powershell
+.\Enable-SensitivityLabels-Complete.ps1 `
+  -TenantEnvironment USGov `
+  -UserPrincipalName admin@contoso.onmicrosoft.us `
+  -SharePointAdminUrl https://contoso-admin.sharepoint.us
+```
+
+For USGov, the script uses Microsoft Graph `USGov`, the compliance PowerShell endpoint `https://ps.compliance.protection.office365.us/powershell-liveid/`, and the authorization endpoint `https://login.microsoftonline.us/organizations`.
 
 ### Skip Module Installation
 If modules are already installed:
@@ -84,6 +99,21 @@ Force reinstallation of all modules:
 .\Enable-SensitivityLabels-Complete.ps1 -Force
 ```
 
+### Enable Co-authoring and PDF Support
+Enable optional tenant settings for co-authoring with sensitivity labels and PDF sensitivity label support:
+```powershell
+.\Enable-SensitivityLabels-Complete.ps1 `
+  -SharePointAdminUrl https://contoso-admin.sharepoint.com `
+  -EnableCoauthoring `
+  -EnablePdfSupport
+```
+
+### PowerShell 7 SharePoint Online Import
+When running in PowerShell 7, the SharePoint Online module must be imported through Windows PowerShell compatibility. The script now does this automatically with the equivalent of:
+```powershell
+Import-Module Microsoft.Online.SharePoint.PowerShell -UseWindowsPowerShell
+```
+
 ## Parameters
 
 | Parameter | Type | Required | Description |
@@ -91,6 +121,11 @@ Force reinstallation of all modules:
 | `LogPath` | String | No | Path for transcript logs (default: current directory) |
 | `SkipModuleInstall` | Switch | No | Skip module installation if already installed |
 | `Force` | Switch | No | Force reinstall modules even if present |
+| `TenantEnvironment` | String | No | Target cloud environment: `Commercial` or `USGov` (default: `Commercial`) |
+| `UserPrincipalName` | String | No | Admin account for Exchange Online Protection / Purview PowerShell connection |
+| `SharePointAdminUrl` | String | No | SharePoint admin center URL, such as `https://contoso-admin.sharepoint.com` or `https://contoso-admin.sharepoint.us`; required before the SharePoint Online configuration step |
+| `EnableCoauthoring` | Switch | No | Runs `Set-PolicyConfig -EnableLabelCoauth $true` |
+| `EnablePdfSupport` | Switch | No | Runs `Set-SPOTenant -EnableSensitivityLabelforPDF $true` |
 
 ## What Gets Configured
 
@@ -102,7 +137,11 @@ Force reinstallation of all modules:
    - Enables Azure Information Protection integration
    - Allows sensitivity labels on SharePoint Sites and OneDrive
 
-3. **Azure AD Label Sync**
+3. **Co-authoring and PDF Support (Optional)**
+   - Enables `EnableLabelCoauth` for co-authoring files with sensitivity labels
+   - Enables `EnableSensitivityLabelforPDF` for PDF sensitivity label support in SharePoint and OneDrive
+
+4. **Azure AD Label Sync**
    - Synchronizes sensitivity labels from Microsoft Purview to Azure AD
    - Makes labels available across all Microsoft 365 services
 
