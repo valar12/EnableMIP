@@ -127,7 +127,7 @@ try {
         $requiredModules = @(
             @{Name = "Microsoft.Graph.Beta.Identity.DirectoryManagement"; MinVersion = "2.0.0"},
             @{Name = "Microsoft.Graph.Authentication"; MinVersion = "2.0.0"},
-            @{Name = "ExchangeOnlineManagement"; MinVersion = "3.0.0"},
+            @{Name = "ExchangeOnlineManagement"; MinVersion = "3.7.2"},
             @{Name = "Microsoft.Online.SharePoint.PowerShell"; MinVersion = "16.0.0"}
         )
         
@@ -137,21 +137,24 @@ try {
                 Sort-Object Version -Descending | 
                 Select-Object -First 1
             
-            if ($installedModule -and -not $Force) {
+            $minimumVersion = [version]$module.MinVersion
+            if ($installedModule -and -not $Force -and $installedModule.Version -ge $minimumVersion) {
                 Write-Host " [Installed: v$($installedModule.Version)]" -ForegroundColor Green
-                if (-not $SkipModuleInstall) {
-                    try {
-                        Write-Host "    Updating module..." -NoNewline
-                        Update-Module $module.Name -ErrorAction SilentlyContinue
-                        Write-Host " [OK]" -ForegroundColor Green
-                    } catch {
-                        Write-Host " [Skipped - Already latest version]" -ForegroundColor Gray
-                    }
+                try {
+                    Write-Host "    Updating module..." -NoNewline
+                    Update-Module $module.Name -ErrorAction SilentlyContinue
+                    Write-Host " [OK]" -ForegroundColor Green
+                } catch {
+                    Write-Host " [Skipped - Already latest version]" -ForegroundColor Gray
                 }
             } else {
-                Write-Host " [Installing...]" -ForegroundColor Yellow
+                if ($installedModule -and $installedModule.Version -lt $minimumVersion) {
+                    Write-Host " [Installed: v$($installedModule.Version); updating to v$($module.MinVersion) or later...]" -ForegroundColor Yellow
+                } else {
+                    Write-Host " [Installing...]" -ForegroundColor Yellow
+                }
                 try {
-                    Install-Module $module.Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+                    Install-Module $module.Name -MinimumVersion $module.MinVersion -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
                     Write-Host "    [OK] $($module.Name) installed successfully" -ForegroundColor Green
                 } catch {
                     throw "Failed to install $($module.Name): $_"
@@ -175,6 +178,14 @@ try {
         }
         Import-Module @spoImportParams
         Write-Host "  [OK] All modules imported successfully" -ForegroundColor Green
+
+        $ippsCommand = Get-Command Connect-IPPSSession -ErrorAction Stop
+        if ($ippsCommand.Parameters.ContainsKey("DisableWAM")) {
+            $ippsConnectionParams.DisableWAM = $true
+            Write-Host "  [INFO] Security & Compliance Center connections will disable WAM to avoid broker sign-in failures" -ForegroundColor Cyan
+        } else {
+            Write-Host "  [WARNING] Connect-IPPSSession does not support -DisableWAM in the installed ExchangeOnlineManagement module. Update to v3.7.2 or later if WAM broker sign-in fails." -ForegroundColor Yellow
+        }
     } catch {
         throw "Failed to import modules: $_"
     }
@@ -292,14 +303,13 @@ try {
         if ($existingSession) {
             Write-Host "  [INFO] Already connected to Security & Compliance Center" -ForegroundColor Cyan
         } else {
-            # Use interactive authentication without WAM (Windows Account Manager)
             Connect-IPPSSession @ippsConnectionParams -ErrorAction Stop
         }
         Write-Host "  [OK] Connected to Security & Compliance Center" -ForegroundColor Green
     } catch {
         Write-Host "  [WARNING] Failed to connect using standard method, trying alternative..." -ForegroundColor Yellow
         try {
-            # Try with the same cloud-specific parameters and default session behavior
+            # Retry with the same cloud-specific parameters. If supported, -DisableWAM is included to bypass WAM broker authentication.
             Connect-IPPSSession @ippsConnectionParams -ErrorAction Stop
             Write-Host "  [OK] Connected to Security & Compliance Center" -ForegroundColor Green
         } catch {

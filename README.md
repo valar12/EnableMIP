@@ -177,6 +177,9 @@ If you encounter authentication errors:
 2. Try closing and reopening PowerShell as Administrator
 3. Clear cached credentials: `Disconnect-MgGraph` and `Disconnect-ExchangeOnline`
 
+### Security & Compliance Center WAM Broker Errors
+If `Connect-IPPSSession` fails with a `RuntimeBroker` or `System.NullReferenceException` token acquisition error, update `ExchangeOnlineManagement` to v3.7.2 or later and rerun the script without `-SkipModuleInstall`. The script automatically passes `-DisableWAM` to `Connect-IPPSSession` when the installed module supports it, which bypasses Windows Account Manager broker authentication.
+
 ### Labels Not Appearing
 - Wait up to 24 hours for full propagation
 - Verify labels are published to your users
